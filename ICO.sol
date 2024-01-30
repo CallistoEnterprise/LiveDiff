@@ -62,20 +62,28 @@ interface IERC20 {
 interface IVesting {
     function allocateTokens(
         address to, // beneficiary of tokens
-        uint256 amount // amount of token
+        uint256 amount, // amount of token
+        uint256 unlockPercentage,   // percentage of initially unlocked token
+        uint256 finishVesting,       // Timestamp (unix time) when starts vesting. First vesting will be at this time
+        uint256 cliffPercentage,  // percentage of tokens will be unlocked every interval (i.e. 10% per 30 days)
+        uint256 cliffInterval     // interval (in seconds) of vesting (i.e. 30 days)
     ) external;
 }
 
 contract ICO is Ownable {
     address public ICOtoken;    // ICO token and receiving token must have 18 decimals
     address public vestingContract; 
-    //uint256 public decimals;    // ICOtoken decimals
+
+    uint256 public unlockPercentage = 50; // percentage of initially unlocked token
+    uint256 public vestingPeriod = 182 days;    // vesting period (in seconds)
+    uint256 public cliffPercentage = 33;        // percentage of locked tokens will be unlocked every interval (i.e. 10% per 30 days)
+    uint256 public cliffInterval = 30 days;     // interval (in seconds) of vesting (i.e. 30 days)
 
     struct Round {
         uint256 amount;     // amount of tokens to sell in this round
         uint64 startDate;   // timestamp when round starts
         uint64 endDate;     // timestamp when round finishes
-        uint128 price;      // price per token
+        uint128 price;      // price per token (in payTokens value)
         address payTokens;  // token should be paid (address(0) - native coin)
         uint256 totalSold;  // amount of tokens sold 
         uint256 totalReceived;  // total payments received in round
@@ -87,10 +95,10 @@ contract ICO is Ownable {
 
     event BuyToken(uint256 round, address paidToken, uint256 paidAmount, uint256 sellAmount);
 
-    constructor (address _ICOtoken) {
+    constructor (address _ICOtoken, address _vestingContract) {
         rounds.push();  // starts from round 1
         ICOtoken = _ICOtoken;
-        //decimals = IERC20(_ICOtoken).decimals();
+        vestingContract = _vestingContract;
     }
 
     modifier checkRound() {
@@ -106,6 +114,7 @@ contract ICO is Ownable {
         _;
     }
 
+    // returns current or next (if it was not started yet) round information
     function getRound() external view returns(Round memory round) {
         uint256 len = rounds.length;
         uint256 i = currentRound;
@@ -115,7 +124,12 @@ contract ICO is Ownable {
         if (i < len) return rounds[i];
     }
 
-    function buyToken(uint256 amount) external payable checkRound {
+    receive() external payable {
+        buyToken(msg.value);
+    }
+
+    // Buy ICO tokens for amount of pay tokens
+    function buyToken(uint256 amount) public payable checkRound {
         Round storage r = rounds[currentRound];
         uint256 rest;
         uint256 sellAmount = amount * 1e18 / r.price;
@@ -131,8 +145,14 @@ contract ICO is Ownable {
             require(msg.value == 0, "Should pay with tokens");
             safeTransferFrom(r.payTokens, msg.sender, address(this), amount-rest);
         }
-        safeTransfer(ICOtoken, vestingContract, sellAmount);
-        IVesting(vestingContract).allocateTokens(msg.sender, sellAmount);
+        uint256 finishVesting = block.timestamp + vestingPeriod;
+        uint256 unlockedAmount = sellAmount * unlockPercentage / 100;
+        uint256 lockedAmount = sellAmount - unlockedAmount;
+        if (lockedAmount != 0) {
+            safeTransfer(ICOtoken, vestingContract, lockedAmount);
+            IVesting(vestingContract).allocateTokens(msg.sender, lockedAmount, 0, finishVesting, cliffPercentage, cliffInterval);
+        }
+        safeTransfer(ICOtoken, msg.sender, unlockedAmount);
         emit BuyToken(currentRound, r.payTokens, amount-rest, sellAmount);
     }
 
@@ -171,6 +191,20 @@ contract ICO is Ownable {
 
     function setPause(bool pause) external onlyOwner {
         isPause = pause;
+    }
+
+    function setVesting(
+        address _vestingContract,  // address of vesting contract
+        uint256 _unlockPercentage, // percentage of initially unlocked token
+        uint256 _vestingPeriod,    // vesting period (in seconds)
+        uint256 _cliffPercentage,  // percentage of locked tokens will be unlocked every interval (i.e. 10% per 30 days)
+        uint256 _cliffInterval     // interval (in seconds) of vesting (i.e. 30 days)
+    ) external onlyOwner {
+        vestingContract = _vestingContract;
+        unlockPercentage = _unlockPercentage;
+        vestingPeriod = _vestingPeriod;
+        cliffPercentage = _cliffPercentage;
+        cliffInterval = _cliffInterval;
     }
 
     // allow to receive ERC223 tokens
