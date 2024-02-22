@@ -74,18 +74,17 @@ interface IVesting {
 contract ICO is Ownable {
     address public ICOtoken;    // ICO token and receiving token must have 18 decimals
     address public vestingContract; 
-    //address public paymentToken = 0x7873d09AF3d6965988831C60c7D38DBbd2eAEAB0; // test4
     address public paymentToken = 0xbf6c50889d3a620eb42C0F188b65aDe90De958c4; //BUSDT
 
-    uint256 public unlockPercentage = 500; // percentage (with 2 decimals) of initially unlocked token
-    uint256 public cliffPeriod = 180 days;    // vesting period (in seconds)
-    uint256 public vestingPercentage = 500;        // percentage (with 2 decimals) of locked tokens will be unlocked every interval (i.e. 10% per 30 days)
+    uint256 public unlockPercentage = 500; // 5% - percentage (with 2 decimals) of initially unlocked token
+    uint256 public cliffPeriod = 180 days;    // cliff period (in seconds)
+    uint256 public vestingPercentage = 500;        // 5% - percentage (with 2 decimals) of locked tokens will be unlocked every interval (i.e. 5% per 30 days)
     uint256 public vestingInterval = 30 days;     // interval (in seconds) of vesting (i.e. 30 days)
-    uint256 public bonusReserve = 16 * 10**6 * 10**18;
+    uint256 public bonusReserve = 16 * 10**6 * 10**18;  // 16M 
     uint256 public bonusPercentage = 2500;  // 25% (with two decimals)
     uint256 public bonusActivator = 1000;   // 10% (with two decimals) of round amount
 
-    uint256 public startDate = 1707483000;
+    uint256 public startDate = 1708941600; // 26 February 2024, 10:00:00 UTC
 
     struct Round {
         uint256 amount;     // amount of tokens to sell in this round

@@ -2,6 +2,10 @@
 
 ## Deployed contracts
 
+### LiveDIFF token
+
+- [0xdf4Da43DD3E9918F0784f8c92b8aa1b304C43243](https://explorer.callisto.network/token/0xdf4Da43DD3E9918F0784f8c92b8aa1b304C43243/read-contract)
+
 ### Multisig wallets
 
 1. Platform rewards [0xaAB2f1727703c227a47539820213839787F1aA45](https://explorer.callisto.network/address/0xaAB2f1727703c227a47539820213839787F1aA45/read-contract)
