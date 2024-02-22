@@ -57,159 +57,148 @@ interface IERC20 {
     function decimals() external view returns (uint8);
     function balanceOf(address account) external view returns (uint256);
     function transfer(address recipient, uint256 amount) external returns (bool);
+    function approve(address spender, uint256 amount) external returns (bool);
 }
 
 interface IVesting {
     function allocateTokens(
         address to, // beneficiary of tokens
         uint256 amount, // amount of token
-        uint256 unlockPercentage,   // percentage of initially unlocked token
-        uint256 finishVesting,       // Timestamp (unix time) when starts vesting. First vesting will be at this time
-        uint256 cliffPercentage,  // percentage of tokens will be unlocked every interval (i.e. 10% per 30 days)
-        uint256 cliffInterval     // interval (in seconds) of vesting (i.e. 30 days)
+        uint256 unlockPercentage,   // percentage (with 2 decimals) of initially unlocked token
+        uint256 cliffFinish,       // Timestamp (unix time) when starts vesting. First vesting will be at this time
+        uint256 vestingPercentage,  // percentage (with 2 decimals) of tokens will be unlocked every interval (i.e. 10% per 30 days)
+        uint256 vestingInterval     // interval (in seconds) of vesting (i.e. 30 days)
     ) external;
 }
 
 contract ICO is Ownable {
     address public ICOtoken;    // ICO token and receiving token must have 18 decimals
     address public vestingContract; 
+    //address public paymentToken = 0x7873d09AF3d6965988831C60c7D38DBbd2eAEAB0; // test4
+    address public paymentToken = 0xbf6c50889d3a620eb42C0F188b65aDe90De958c4; //BUSDT
 
-    uint256 public unlockPercentage = 50; // percentage of initially unlocked token
-    uint256 public vestingPeriod = 182 days;    // vesting period (in seconds)
-    uint256 public cliffPercentage = 33;        // percentage of locked tokens will be unlocked every interval (i.e. 10% per 30 days)
-    uint256 public cliffInterval = 30 days;     // interval (in seconds) of vesting (i.e. 30 days)
+    uint256 public unlockPercentage = 500; // percentage (with 2 decimals) of initially unlocked token
+    uint256 public cliffPeriod = 180 days;    // vesting period (in seconds)
+    uint256 public vestingPercentage = 500;        // percentage (with 2 decimals) of locked tokens will be unlocked every interval (i.e. 10% per 30 days)
+    uint256 public vestingInterval = 30 days;     // interval (in seconds) of vesting (i.e. 30 days)
+    uint256 public startDate = 1707483000;
 
     struct Round {
         uint256 amount;     // amount of tokens to sell in this round
-        uint64 startDate;   // timestamp when round starts
-        uint64 endDate;     // timestamp when round finishes
         uint128 price;      // price per token (in payTokens value)
-        address payTokens;  // token should be paid (address(0) - native coin)
+        uint128 roundStarts; // timestamp when round starts
         uint256 totalSold;  // amount of tokens sold 
         uint256 totalReceived;  // total payments received in round
     }
 
-    Round[] public rounds;  // starts from round 1
+    Round[] public rounds;
     uint256 public currentRound;
     bool public isPause;
 
-    event BuyToken(uint256 round, address paidToken, uint256 paidAmount, uint256 sellAmount);
+    event BuyToken(uint256 round, uint256 amountToPay, uint256 amountToBuy);
+    event RoundEnds(uint256 round, uint256 starTime, uint256 endTime, uint256 lastSoldAmount);
 
     constructor (address _ICOtoken, address _vestingContract) {
-        rounds.push();  // starts from round 1
         ICOtoken = _ICOtoken;
         vestingContract = _vestingContract;
+        IERC20(_ICOtoken).approve(_vestingContract, type(uint256).max);
     }
 
     modifier checkRound() {
-        uint256 len = rounds.length;
-        uint256 i = currentRound;
-        for (; i<len; i++) {
-            if(rounds[i].endDate >= block.timestamp) break; 
-        }
-        currentRound = i;
-        require(i < len, "ICO finished");
-        require(block.timestamp >= rounds[i].startDate, "ICO round is not started yet");
+        require(currentRound < rounds.length, "ICO finished");
+        require(block.timestamp >= startDate, "ICO is not started yet");
         require(!isPause, "ICO is paused");
         _;
     }
 
-    // returns current or next (if it was not started yet) round information
-    function getRound() external view returns(Round memory round) {
-        uint256 len = rounds.length;
-        uint256 i = currentRound;
-        for (; i<len; i++) {
-            if(rounds[i].endDate >= block.timestamp) break; 
-        }   
-        if (i < len) return rounds[i];
-    }
+    // Buy ICO tokens
+    function buyToken(
+        uint256 amountToBuy,    // amount of token to buy
+        address buyer           // buyer address
+    ) public checkRound {
+        require(buyer != address(0), "Incorrect buyer");
+        uint256 _currentRound = currentRound;   // use local variable to save gas
+        Round storage r = rounds[_currentRound];
+        if(r.roundStarts == 0) {
+            if(_currentRound == 0) r.roundStarts = uint128(startDate);
+            else r.roundStarts = uint128(block.timestamp);
+        }
 
-    receive() external payable {
-        buyToken(msg.value);
-    }
+        if(r.totalSold + amountToBuy >= r.amount) {
+            amountToBuy = r.amount - r.totalSold;
+            currentRound++;
+            emit RoundEnds(_currentRound, r.roundStarts, block.timestamp, amountToBuy);
+        }
 
-    // Buy ICO tokens for amount of pay tokens
-    function buyToken(uint256 amount) public payable checkRound {
-        Round storage r = rounds[currentRound];
-        uint256 rest;
-        uint256 sellAmount = amount * 1e18 / r.price;
-        if(r.totalSold + sellAmount > r.amount) {
-            sellAmount = r.amount - r.totalSold;
-            rest = amount - (sellAmount * r.price / 1e18);  // amount to refund user
-        }
-        if (r.payTokens == address(0)) {
-            require(amount == msg.value, "wrong amount");
-            if(rest != 0) safeTransferCLO(msg.sender, rest);
-        }
-        else {
-            require(msg.value == 0, "Should pay with tokens");
-            safeTransferFrom(r.payTokens, msg.sender, address(this), amount-rest);
-        }
-        uint256 finishVesting = block.timestamp + vestingPeriod;
-        uint256 unlockedAmount = sellAmount * unlockPercentage / 100;
-        uint256 lockedAmount = sellAmount - unlockedAmount;
+        uint256 amountToPay = amountToBuy * r.price / 1e18;
+        r.totalSold += amountToBuy;
+        r.totalReceived += amountToPay;
+        safeTransferFrom(paymentToken, msg.sender, owner(), amountToPay);
+        // set vesting
+        uint256 finishVesting = block.timestamp + cliffPeriod;
+        uint256 unlockedAmount = amountToBuy * unlockPercentage / 10000;
+        uint256 lockedAmount = amountToBuy - unlockedAmount;
         if (lockedAmount != 0) {
-            safeTransfer(ICOtoken, vestingContract, lockedAmount);
-            IVesting(vestingContract).allocateTokens(msg.sender, lockedAmount, 0, finishVesting, cliffPercentage, cliffInterval);
+            //safeTransfer(ICOtoken, vestingContract, lockedAmount);
+            IVesting(vestingContract).allocateTokens(buyer, lockedAmount, 0, finishVesting, vestingPercentage, vestingInterval);
         }
-        safeTransfer(ICOtoken, msg.sender, unlockedAmount);
-        emit BuyToken(currentRound, r.payTokens, amount-rest, sellAmount);
+        safeTransfer(ICOtoken, buyer, unlockedAmount);
+        emit BuyToken(_currentRound, amountToPay, amountToBuy);
     }
 
     function addRound(
         uint256 amount,     // amount of tokens to sell in this round
-        uint64 startDate,   // timestamp when round starts
-        uint64 endDate,     // timestamp when round finishes
-        uint128 price,       // price per token       
-        address payTokens  // token should be paid (address(0) - native coin)
+        uint128 price       // price per token (in USD with 18 decimals)     
     ) external onlyOwner {
-        Round storage r = rounds[rounds.length-1];
-        require(r.endDate < startDate, "New round must start after previous");
-        require(startDate < endDate && startDate > block.timestamp, "wrong dates");
-        rounds.push(Round(amount, startDate, endDate, price, payTokens, 0, 0));
+        rounds.push(Round(amount, price, 0, 0, 0));
     }
 
     function changRound(
         uint256 roundId,    // round to change
         uint256 amount,     // amount of tokens to sell in this round
-        uint64 startDate,   // timestamp when round starts
-        uint64 endDate,     // timestamp when round finishes
-        uint128 price,       // price per token
-        address payTokens  // token should be paid (address(0) - native coin)
+        uint128 price       // price per token (in USD with 18 decimals) 
     ) external onlyOwner {
-        require(roundId > 0 && roundId < rounds.length, "wrong round id");
-        //require(rounds[roundId].startDate > block.timestamp, "Round already started");
-        require(rounds[roundId-1].endDate < startDate, "Round must start after previous");
-        if(roundId < rounds.length-1) require(rounds[roundId+1].startDate > endDate, "Round must finish before next");
-        require(startDate < endDate, "wrong dates");        
+        require(roundId < rounds.length, "wrong round id");
         rounds[roundId].amount = amount;
-        rounds[roundId].startDate = startDate;
-        rounds[roundId].endDate = endDate;
         rounds[roundId].price = price;
-        rounds[roundId].payTokens = payTokens;
     }
 
+    function getRoundsNumber() external view returns(uint256 roundsNumber) {
+        return rounds.length;
+    }
+
+    function getCurrentRound() external view returns(Round memory r) {
+        if(currentRound < rounds.length) r = rounds[currentRound];
+    }
+    
     function setPause(bool pause) external onlyOwner {
         isPause = pause;
     }
 
+    function setStartDate(uint256 _startDate) external onlyOwner {
+        startDate = _startDate;
+    }
+
     function setVesting(
-        address _vestingContract,  // address of vesting contract
+        address _vestingContract,  // address of vesting contract or address(0) to don't change
         uint256 _unlockPercentage, // percentage of initially unlocked token
-        uint256 _vestingPeriod,    // vesting period (in seconds)
-        uint256 _cliffPercentage,  // percentage of locked tokens will be unlocked every interval (i.e. 10% per 30 days)
-        uint256 _cliffInterval     // interval (in seconds) of vesting (i.e. 30 days)
+        uint256 _cliffPeriod,    // vesting period (in seconds)
+        uint256 _vestingPercentage,  // percentage of locked tokens will be unlocked every interval (i.e. 10% per 30 days)
+        uint256 _vestingInterval     // interval (in seconds) of vesting (i.e. 30 days)
     ) external onlyOwner {
-        vestingContract = _vestingContract;
+        if(vestingContract != _vestingContract && _vestingContract != address(0)) {
+            IERC20(ICOtoken).approve(vestingContract, 0);
+            IERC20(ICOtoken).approve(_vestingContract, type(uint256).max);
+            vestingContract = _vestingContract;
+        }
         unlockPercentage = _unlockPercentage;
-        vestingPeriod = _vestingPeriod;
-        cliffPercentage = _cliffPercentage;
-        cliffInterval = _cliffInterval;
+        cliffPeriod = _cliffPeriod;
+        vestingPercentage = _vestingPercentage;
+        vestingInterval = _vestingInterval;
     }
 
     // allow to receive ERC223 tokens
-    function tokenReceived(address _from, uint256, bytes memory) external virtual returns(bytes4) {
-        require(msg.sender == ICOtoken && _from == owner(), "ERC223 wrong token");
+    function tokenReceived(address, uint256, bytes memory) external virtual returns(bytes4) {
         return this.tokenReceived.selector;
     }
 
