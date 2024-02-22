@@ -91,7 +91,7 @@ contract ICO is Ownable {
         uint256 totalReceived;  // total payments received in round
     }
 
-    Round[] public rounds;
+    Round[] public rounds;      // return info about arbitrary round
     uint256 public currentRound;
     bool public isPause;
 
@@ -167,6 +167,7 @@ contract ICO is Ownable {
         return rounds.length;
     }
 
+    // return info about current round
     function getCurrentRound() external view returns(Round memory r) {
         if(currentRound < rounds.length) r = rounds[currentRound];
     }
