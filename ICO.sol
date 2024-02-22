@@ -81,6 +81,10 @@ contract ICO is Ownable {
     uint256 public cliffPeriod = 180 days;    // vesting period (in seconds)
     uint256 public vestingPercentage = 500;        // percentage (with 2 decimals) of locked tokens will be unlocked every interval (i.e. 10% per 30 days)
     uint256 public vestingInterval = 30 days;     // interval (in seconds) of vesting (i.e. 30 days)
+    uint256 public bonusReserve = 16 * 10**6 * 10**18;
+    uint256 public bonusPercentage = 2500;  // 25% (with two decimals)
+    uint256 public bonusActivator = 1000;   // 10% (with two decimals) of round amount
+
     uint256 public startDate = 1707483000;
 
     struct Round {
@@ -95,8 +99,13 @@ contract ICO is Ownable {
     uint256 public currentRound;
     bool public isPause;
 
-    event BuyToken(uint256 round, uint256 amountToPay, uint256 amountToBuy);
+    event BuyToken(address buyer, uint256 round, uint256 amountToPay, uint256 amountToBuy, uint256 bonus);
     event RoundEnds(uint256 round, uint256 starTime, uint256 endTime, uint256 lastSoldAmount);
+    event SetBonusData(
+        uint256 _bonusReserve,     // amount of bonus reserve
+        uint256 _bonusPercentage,  // bonus rewards % (with two decimals)
+        uint256 _bonusActivator    // bonus activator % (with two decimals) of round amount
+    );
 
     constructor (address _ICOtoken, address _vestingContract) {
         ICOtoken = _ICOtoken;
@@ -134,16 +143,25 @@ contract ICO is Ownable {
         r.totalSold += amountToBuy;
         r.totalReceived += amountToPay;
         safeTransferFrom(paymentToken, msg.sender, owner(), amountToPay);
+        uint256 bonus = _getBonus(amountToBuy, r.amount);
         // set vesting
         uint256 finishVesting = block.timestamp + cliffPeriod;
-        uint256 unlockedAmount = amountToBuy * unlockPercentage / 10000;
-        uint256 lockedAmount = amountToBuy - unlockedAmount;
+        uint256 unlockedAmount = (amountToBuy + bonus) * unlockPercentage / 10000;
+        uint256 lockedAmount = (amountToBuy + bonus) - unlockedAmount;
         if (lockedAmount != 0) {
             //safeTransfer(ICOtoken, vestingContract, lockedAmount);
             IVesting(vestingContract).allocateTokens(buyer, lockedAmount, 0, finishVesting, vestingPercentage, vestingInterval);
         }
         safeTransfer(ICOtoken, buyer, unlockedAmount);
-        emit BuyToken(_currentRound, amountToPay, amountToBuy);
+        emit BuyToken(buyer, _currentRound, amountToPay, amountToBuy, bonus);
+    }
+
+    function _getBonus(uint256 amountToBuy, uint256 roundAmount) internal returns(uint256 bonus) {
+        if (amountToBuy >= roundAmount * bonusActivator / 10000 && bonusReserve != 0) {
+            bonus = amountToBuy * bonusPercentage / 10000;
+            if (bonus > bonusReserve) bonus = bonusReserve;
+            bonusReserve -= bonus;
+        }
     }
 
     function addRound(
@@ -196,6 +214,25 @@ contract ICO is Ownable {
         cliffPeriod = _cliffPeriod;
         vestingPercentage = _vestingPercentage;
         vestingInterval = _vestingInterval;
+    }
+
+    function setBonusData(
+        uint256 _bonusReserve,     // amount of bonus reserve
+        uint256 _bonusPercentage,  // bonus rewards % (with two decimals)
+        uint256 _bonusActivator    // bonus activator % (with two decimals) of round amount
+    ) external onlyOwner {
+        bonusPercentage = _bonusPercentage;
+        bonusActivator = _bonusActivator;
+        if(_bonusReserve > bonusReserve) {
+            uint256 addAmount = _bonusReserve - bonusReserve;
+            safeTransferFrom(ICOtoken, msg.sender, address(this), addAmount);
+        } else if (_bonusReserve < bonusReserve) {
+            uint256 subAmount = bonusReserve - _bonusReserve;
+            safeTransfer(ICOtoken, msg.sender, subAmount);
+        }
+        bonusReserve = _bonusReserve;
+
+        emit SetBonusData(_bonusReserve, _bonusPercentage, _bonusActivator);
     }
 
     // allow to receive ERC223 tokens
