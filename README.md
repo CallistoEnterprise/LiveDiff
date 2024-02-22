@@ -21,7 +21,7 @@
 
 ### ICO contract
 
-- []()
+- [0x08b60BC7991EeC46Dae2db4C4f08aD9516659339](https://explorer.callisto.network/address/0x08b60BC7991EeC46Dae2db4C4f08aD9516659339/read-contract)
 
 ## Vesting contract functions to use in UI
 
