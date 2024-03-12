@@ -21,7 +21,11 @@
 
 ### ICO contract
 
-- [0x08b60BC7991EeC46Dae2db4C4f08aD9516659339](https://explorer.callisto.network/address/0x08b60BC7991EeC46Dae2db4C4f08aD9516659339/read-contract)
+- [0xcDCf1A978553f64AC55F280702D2Cdd239a49beA](https://explorer.callisto.network/address/0xcDCf1A978553f64AC55F280702D2Cdd239a49beA/read-proxy)
+
+### Virtual USD
+
+- [0xA032bE9AC4113ef7B8208563b6Cc633A2d0583Ab](https://explorer.callisto.network/address/0xA032bE9AC4113ef7B8208563b6Cc633A2d0583Ab/read-contract)
 
 ## Vesting contract functions to use in UI
 

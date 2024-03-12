@@ -14,18 +14,19 @@ pragma solidity 0.8.19;
  * the owner.
  */
 abstract contract Ownable {
-    address private _owner;
+    address internal _owner;
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     /**
      * @dev Initializes the contract setting the deployer as the initial owner.
      */
+    /*
     constructor () {
         _owner = msg.sender;
         emit OwnershipTransferred(address(0), msg.sender);
     }
-
+    */
     /**
      * @dev Returns the address of the current owner.
      */
@@ -74,17 +75,18 @@ interface IVesting {
 contract ICO is Ownable {
     address public ICOtoken;    // ICO token and receiving token must have 18 decimals
     address public vestingContract; 
-    address public paymentToken = 0xbf6c50889d3a620eb42C0F188b65aDe90De958c4; //BUSDT
+    address public paymentToken; //BUSDT
+    address public VUSD; // Virtual USD
 
-    uint256 public unlockPercentage = 500; // 5% - percentage (with 2 decimals) of initially unlocked token
-    uint256 public cliffPeriod = 180 days;    // cliff period (in seconds)
-    uint256 public vestingPercentage = 500;        // 5% - percentage (with 2 decimals) of locked tokens will be unlocked every interval (i.e. 5% per 30 days)
-    uint256 public vestingInterval = 30 days;     // interval (in seconds) of vesting (i.e. 30 days)
-    uint256 public bonusReserve = 16 * 10**6 * 10**18;  // 16M 
-    uint256 public bonusPercentage = 2500;  // 25% (with two decimals)
-    uint256 public bonusActivator = 1000;   // 10% (with two decimals) of round amount
+    uint256 public unlockPercentage; // 5% - percentage (with 2 decimals) of initially unlocked token
+    uint256 public cliffPeriod;    // cliff period (in seconds)
+    uint256 public vestingPercentage;        // 5% - percentage (with 2 decimals) of locked tokens will be unlocked every interval (i.e. 5% per 30 days)
+    uint256 public vestingInterval;     // interval (in seconds) of vesting (i.e. 30 days)
+    uint256 public bonusReserve;  // 16M 
+    uint256 public bonusPercentage;  // 25% (with two decimals)
+    uint256 public bonusActivator;   // 10% (with two decimals) of round amount
 
-    uint256 public startDate = 1708941600; // 26 February 2024, 10:00:00 UTC
+    uint256 public startDate; // 26 February 2024, 10:00:00 UTC
 
     struct Round {
         uint256 amount;     // amount of tokens to sell in this round
@@ -106,10 +108,23 @@ contract ICO is Ownable {
         uint256 _bonusActivator    // bonus activator % (with two decimals) of round amount
     );
 
-    constructor (address _ICOtoken, address _vestingContract) {
-        ICOtoken = _ICOtoken;
-        vestingContract = _vestingContract;
-        IERC20(_ICOtoken).approve(_vestingContract, type(uint256).max);
+    function initialize() external {
+        require(_owner == address(0), "Already init");
+        _owner = msg.sender;
+        emit OwnershipTransferred(address(0), msg.sender);
+        ICOtoken = 0xdf4Da43DD3E9918F0784f8c92b8aa1b304C43243;// LiveDIFF token
+        vestingContract = 0xe5A5837b96176d6E47E541F186B2348DED2c0A1d; // Vesting contract
+        IERC20(ICOtoken).approve(vestingContract, type(uint256).max);
+        paymentToken = 0xbf6c50889d3a620eb42C0F188b65aDe90De958c4; //BUSDT
+        VUSD = 0xA032bE9AC4113ef7B8208563b6Cc633A2d0583Ab; // Virtual USD
+        unlockPercentage = 500; // 5% - percentage (with 2 decimals) of initially unlocked token
+        cliffPeriod = 180 days;    // cliff period (in seconds)
+        vestingPercentage = 500;        // 5% - percentage (with 2 decimals) of locked tokens will be unlocked every interval (i.e. 5% per 30 days)
+        vestingInterval = 30 days;     // interval (in seconds) of vesting (i.e. 30 days)
+        bonusReserve = 16 * 10**6 * 10**18;  // 16M 
+        bonusPercentage = 2500;  // 25% (with two decimals)
+        bonusActivator = 1000;   // 10% (with two decimals) of round amount
+        startDate = 1708941600; // 26 February 2024, 10:00:00 UTC        
     }
 
     modifier checkRound() {
@@ -121,6 +136,22 @@ contract ICO is Ownable {
 
     // Buy ICO tokens
     function buyToken(
+        uint256 amountToBuy,    // amount of token to buy
+        address buyer           // buyer address
+    ) public checkRound {
+        _buyToken(paymentToken, amountToBuy, buyer);
+    }
+
+    // Buy ICO tokens using Virtual USD
+    function buyTokenVirtual(
+        uint256 amountToBuy,    // amount of token to buy
+        address buyer           // buyer address
+    ) public checkRound {
+        _buyToken(VUSD, amountToBuy, buyer);
+    }
+
+    function _buyToken(
+        address payToken,       // token to pay
         uint256 amountToBuy,    // amount of token to buy
         address buyer           // buyer address
     ) public checkRound {
@@ -141,7 +172,7 @@ contract ICO is Ownable {
         uint256 amountToPay = amountToBuy * r.price / 1e18;
         r.totalSold += amountToBuy;
         r.totalReceived += amountToPay;
-        safeTransferFrom(paymentToken, msg.sender, owner(), amountToPay);
+        safeTransferFrom(payToken, msg.sender, owner(), amountToPay);
         uint256 bonus = _getBonus(amountToBuy, r.amount);
         // set vesting
         uint256 finishVesting = block.timestamp + cliffPeriod;
@@ -153,7 +184,7 @@ contract ICO is Ownable {
         }
         safeTransfer(ICOtoken, buyer, unlockedAmount);
         emit BuyToken(buyer, _currentRound, amountToPay, amountToBuy, bonus);
-    }
+    }    
 
     function _getBonus(uint256 amountToBuy, uint256 roundAmount) internal returns(uint256 bonus) {
         if (amountToBuy >= roundAmount * bonusActivator / 10000 && bonusReserve != 0) {
@@ -178,6 +209,12 @@ contract ICO is Ownable {
         require(roundId < rounds.length, "wrong round id");
         rounds[roundId].amount = amount;
         rounds[roundId].price = price;
+    }
+
+    function setRoundSold(uint256 roundId, uint256 soldAmount, uint256 receivedAmount) external onlyOwner {
+        require(roundId < rounds.length, "wrong round id");
+        rounds[roundId].totalSold = soldAmount;
+        rounds[roundId].totalReceived = receivedAmount;
     }
 
     function getRoundsNumber() external view returns(uint256 roundsNumber) {
