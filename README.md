@@ -27,6 +27,10 @@
 
 - [0xA032bE9AC4113ef7B8208563b6Cc633A2d0583Ab](https://explorer.callisto.network/address/0xA032bE9AC4113ef7B8208563b6Cc633A2d0583Ab/read-contract)
 
+### UI to buy tokens using Virtual USD
+
+- https://yuriy77k.github.io/web3/buyDiff.html
+
 ## Vesting contract functions to use in UI
 
 ### View function `getUnlockedAmount`
