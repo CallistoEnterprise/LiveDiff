@@ -60,31 +60,30 @@ This function claims unlocked tokens for user.
 
 ```Solidity
     // return info about arbitrary round
-    function getRound(uint256 roundId) external view returns(Round memory round); 
+    function rounds(uint256 roundId) external view returns(Round memory round); 
     // return info about current round
     function getCurrentRound() external view returns(Round memory r);
 
     struct Round {
         uint256 amount;     // amount of tokens to sell in this round
-        uint64 startDate;   // timestamp when round starts
-        uint64 endDate;     // timestamp when round finishes
         uint128 price;      // price per token (in payTokens value)
-        address payTokens;  // token should be paid (address(0) - native coin)
+        uint128 roundStarts; // timestamp when round starts
         uint256 totalSold;  // amount of tokens sold 
         uint256 totalReceived;  // total payments received in round
     }
 ```
 
-Returns `Round` structure for current ICO round. If current round is finished, but the next round is not started yet the function returns `Round` structure for the next round.
+Returns `Round` structure for specific or current ICO round. If current round is finished, but the next round is not started yet the function returns `Round` structure for the next round.
 If no round is available the `Round` structure will be empty.
 
-### View function `rounds`
+### View function `currentRound`
 
 ```Solidity
-    function rounds(uint256 roundId) external view returns(Round memory round);
+    function currentRound() external view returns(uint256 currentRound);
 ```
 
-Returns `Round` structure for specific ICO round. Rounds starts from 1.
+Returns current roundId (zero-based round number);
+
 
 ### `buyToken`
 
